@@ -8,7 +8,10 @@ from typing import List, Dict, Any
 
 app = FastAPI()
 
-
+@app.get("/")
+def health():
+    return {"status": "ok"}
+    
 @app.post("/anonymize")
 async def anonymize_image(
     image: UploadFile = File(...),
