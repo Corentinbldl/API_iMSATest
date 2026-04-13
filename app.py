@@ -12,7 +12,27 @@ app = FastAPI()
 
 @app.get("/")
 def health():
+    print(">>> GET / appelé")
     return {"status": "ok"}
+
+
+@app.get("/ping")
+def ping():
+    print(">>> GET /ping appelé")
+    return {"message": "pong"}
+
+
+@app.post("/echo")
+async def echo(request: Request):
+    print(">>> POST /echo appelé")
+    body = await request.body()
+    print(">>> headers =", dict(request.headers))
+    print(">>> body size =", len(body))
+    return JSONResponse({
+        "ok": True,
+        "body_size": len(body),
+        "content_type": request.headers.get("content-type")
+    })
 
 
 @app.post("/anonymize")
