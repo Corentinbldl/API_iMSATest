@@ -11,23 +11,29 @@ app = FastAPI()
 
 
 @app.get("/")
+def root():
+    print(">>> GET / called", flush=True)
+    return {"status": "ok"}
+
+
+@app.get("/health")
 def health():
-    print(">>> GET / appelé")
+    print(">>> GET /health called", flush=True)
     return {"status": "ok"}
 
 
 @app.get("/ping")
 def ping():
-    print(">>> GET /ping appelé")
+    print(">>> GET /ping called", flush=True)
     return {"message": "pong"}
 
 
 @app.post("/echo")
 async def echo(request: Request):
-    print(">>> POST /echo appelé")
+    print(">>> POST /echo called", flush=True)
     body = await request.body()
-    print(">>> headers =", dict(request.headers))
-    print(">>> body size =", len(body))
+    print(">>> headers =", dict(request.headers), flush=True)
+    print(">>> body size =", len(body), flush=True)
     return JSONResponse({
         "ok": True,
         "body_size": len(body),
@@ -41,36 +47,36 @@ async def anonymize_image(request: Request):
     output_path = None
 
     try:
+        print("===== POST /anonymize START =====", flush=True)
+
         form = await request.form()
 
-        print("===== REQUEST DEBUG START =====")
-        print("method =", request.method)
-        print("url =", str(request.url))
-        print("headers =", dict(request.headers))
-        print("form keys =", list(form.keys()))
+        print("method =", request.method, flush=True)
+        print("url =", str(request.url), flush=True)
+        print("headers =", dict(request.headers), flush=True)
+        print("form keys =", list(form.keys()), flush=True)
 
         zones_json_raw = None
         uploaded_file = None
 
         for key, value in form.multi_items():
-            print("FORM ITEM -> key =", key, "| type =", str(type(value)))
+            print(f"FORM ITEM -> key={key} | type={type(value)}", flush=True)
 
             if key == "zonesJson":
                 zones_json_raw = value
+                print("zonesJson found in multipart field", flush=True)
 
-            # très important : ne pas dépendre du nom du champ
             if isinstance(value, StarletteUploadFile):
                 uploaded_file = value
-                print("UPLOAD FILE DETECTED")
-                print("upload key =", key)
-                print("filename =", value.filename)
-                print("content_type =", value.content_type)
+                print("UPLOAD FILE DETECTED", flush=True)
+                print("upload key =", key, flush=True)
+                print("filename =", value.filename, flush=True)
+                print("content_type =", value.content_type, flush=True)
 
-        # fallback: parfois UiPath peut envoyer zonesJson ailleurs
         if not zones_json_raw:
             zones_json_raw = request.query_params.get("zonesJson")
             if zones_json_raw:
-                print("zonesJson trouvé dans query params")
+                print("zonesJson found in query params", flush=True)
 
         if not zones_json_raw:
             raise HTTPException(status_code=400, detail="zonesJson manquant")
@@ -97,21 +103,21 @@ async def anonymize_image(request: Request):
 
         output_path = input_path.replace(suffix, f"_anonymized{suffix}")
 
-        print("===== IMAGE DEBUG =====")
-        print("input_path =", input_path)
-        print("output_path =", output_path)
-        print("input file size =", os.path.getsize(input_path))
-        print("zones_count =", len(zones))
+        print("===== IMAGE DEBUG =====", flush=True)
+        print("input_path =", input_path, flush=True)
+        print("output_path =", output_path, flush=True)
+        print("input file size =", os.path.getsize(input_path), flush=True)
+        print("zones_count =", len(zones), flush=True)
 
         with Image.open(input_path) as img:
-            print("image format =", img.format)
-            print("image mode before =", img.mode)
+            print("image format =", img.format, flush=True)
+            print("image mode before =", img.mode, flush=True)
 
             draw = ImageDraw.Draw(img)
             image_width, image_height = img.size
 
-            print("image_width =", image_width)
-            print("image_height =", image_height)
+            print("image_width =", image_width, flush=True)
+            print("image_height =", image_height, flush=True)
 
             for idx, zone in enumerate(zones, start=1):
                 pdf_x = float(zone["PdfX"])
@@ -124,7 +130,6 @@ async def anonymize_image(request: Request):
                 scale_x = image_width / page_width
                 scale_y = image_height / page_height
 
-                # Coordonnées IXP : x/y semblent déjà correspondre à l'image
                 x1 = round(pdf_x * scale_x)
                 y1 = round(pdf_y * scale_y)
                 x2 = round((pdf_x + pdf_w) * scale_x)
@@ -143,44 +148,43 @@ async def anonymize_image(request: Request):
                 if y2 <= y1:
                     y2 = y1 + 1
 
-                print("===== ZONE DEBUG =====")
-                print("zone_index =", idx)
-                print("pdf_x =", pdf_x, "pdf_y =", pdf_y, "pdf_w =", pdf_w, "pdf_h =", pdf_h)
-                print("page_width =", page_width, "page_height =", page_height)
-                print("scale_x =", scale_x, "scale_y =", scale_y)
-                print("rect_pixels =", x1, y1, x2, y2)
+                print("===== ZONE DEBUG =====", flush=True)
+                print("zone_index =", idx, flush=True)
+                print("pdf_x =", pdf_x, "pdf_y =", pdf_y, "pdf_w =", pdf_w, "pdf_h =", pdf_h, flush=True)
+                print("page_width =", page_width, "page_height =", page_height, flush=True)
+                print("scale_x =", scale_x, "scale_y =", scale_y, flush=True)
+                print("rect_pixels =", x1, y1, x2, y2, flush=True)
 
-                # pour debug visuel
                 draw.rectangle([x1, y1, x2, y2], fill="black")
 
             if img.mode in ("RGBA", "P"):
                 img = img.convert("RGB")
 
-            print("image mode after =", img.mode)
+            print("image mode after =", img.mode, flush=True)
 
-            img.save(output_path, format="JPEG")
+            img.save(output_path, format="JPEG", quality=95)
 
-        print("output exists =", os.path.exists(output_path))
+        print("output exists =", os.path.exists(output_path), flush=True)
         if os.path.exists(output_path):
-            print("output size =", os.path.getsize(output_path))
+            print("output size =", os.path.getsize(output_path), flush=True)
 
-        print("===== REQUEST DEBUG END =====")
+        print("===== POST /anonymize END =====", flush=True)
 
         return FileResponse(
-            output_path,
+            path=output_path,
             media_type="image/jpeg",
             filename=f"anonymized_{uploaded_file.filename or 'image.jpg'}"
         )
 
     except HTTPException as e:
-        print("===== HTTP EXCEPTION =====")
-        print("status_code =", e.status_code)
-        print("detail =", e.detail)
+        print("===== HTTP EXCEPTION =====", flush=True)
+        print("status_code =", e.status_code, flush=True)
+        print("detail =", e.detail, flush=True)
         return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
 
     except Exception as e:
-        print("===== UNHANDLED EXCEPTION =====")
-        print(str(e))
+        print("===== UNHANDLED EXCEPTION =====", flush=True)
+        print(str(e), flush=True)
         return JSONResponse(
             status_code=500,
             content={"detail": f"Erreur traitement image: {str(e)}"}
