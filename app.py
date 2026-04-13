@@ -1,5 +1,6 @@
-from fastapi import FastAPI, UploadFile, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
+from starlette.datastructures import UploadFile as StarletteUploadFile
 from PIL import Image, ImageDraw
 import json
 import os
@@ -22,13 +23,34 @@ async def anonymize_image(request: Request):
     try:
         form = await request.form()
 
-        print("===== FORM DEBUG =====")
+        print("===== REQUEST DEBUG START =====")
+        print("method =", request.method)
+        print("url =", str(request.url))
+        print("headers =", dict(request.headers))
         print("form keys =", list(form.keys()))
 
-        zones_json_raw = form.get("zonesJson")
-        print("zonesJson présent =", zones_json_raw is not None)
-        if zones_json_raw:
-            print("zonesJson preview =", str(zones_json_raw)[:500])
+        zones_json_raw = None
+        uploaded_file = None
+
+        for key, value in form.multi_items():
+            print("FORM ITEM -> key =", key, "| type =", str(type(value)))
+
+            if key == "zonesJson":
+                zones_json_raw = value
+
+            # très important : ne pas dépendre du nom du champ
+            if isinstance(value, StarletteUploadFile):
+                uploaded_file = value
+                print("UPLOAD FILE DETECTED")
+                print("upload key =", key)
+                print("filename =", value.filename)
+                print("content_type =", value.content_type)
+
+        # fallback: parfois UiPath peut envoyer zonesJson ailleurs
+        if not zones_json_raw:
+            zones_json_raw = request.query_params.get("zonesJson")
+            if zones_json_raw:
+                print("zonesJson trouvé dans query params")
 
         if not zones_json_raw:
             raise HTTPException(status_code=400, detail="zonesJson manquant")
@@ -38,19 +60,11 @@ async def anonymize_image(request: Request):
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"zonesJson invalide: {str(e)}")
 
-        print("zones count =", len(zones))
-
-        uploaded_file = None
-        for key, value in form.multi_items():
-            print("form item key =", key, "type =", type(value))
-            if isinstance(value, UploadFile):
-                uploaded_file = value
-                print("uploaded file found on key =", key)
-                print("uploaded file name =", uploaded_file.filename)
-                break
-
         if uploaded_file is None:
-            raise HTTPException(status_code=400, detail="Aucun fichier image reçu")
+            raise HTTPException(
+                status_code=400,
+                detail="Aucun fichier image reçu. Vérifie la section Local files de UiPath."
+            )
 
         suffix = os.path.splitext(uploaded_file.filename or "input.jpg")[1]
         if not suffix:
@@ -63,19 +77,19 @@ async def anonymize_image(request: Request):
 
         output_path = input_path.replace(suffix, f"_anonymized{suffix}")
 
-        print("===== FILE DEBUG =====")
+        print("===== IMAGE DEBUG =====")
         print("input_path =", input_path)
         print("output_path =", output_path)
-        print("uploaded bytes =", len(file_bytes))
+        print("input file size =", os.path.getsize(input_path))
+        print("zones_count =", len(zones))
 
         with Image.open(input_path) as img:
             print("image format =", img.format)
-            print("image mode =", img.mode)
+            print("image mode before =", img.mode)
 
             draw = ImageDraw.Draw(img)
             image_width, image_height = img.size
 
-            print("===== IMAGE DEBUG =====")
             print("image_width =", image_width)
             print("image_height =", image_height)
 
@@ -90,67 +104,47 @@ async def anonymize_image(request: Request):
                 scale_x = image_width / page_width
                 scale_y = image_height / page_height
 
-                # Hypothèse A : coordonnées PDF mesurées depuis le haut
-                x1_a = round(pdf_x * scale_x)
-                y1_a = round(pdf_y * scale_y)
-                x2_a = round((pdf_x + pdf_w) * scale_x)
-                y2_a = round((pdf_y + pdf_h) * scale_y)
-
-                # Hypothèse B : coordonnées PDF mesurées depuis le bas
-                x1_b = round(pdf_x * scale_x)
-                x2_b = round((pdf_x + pdf_w) * scale_x)
-                y1_b = round((page_height - (pdf_y + pdf_h)) * scale_y)
-                y2_b = round((page_height - pdf_y) * scale_y)
+                # Coordonnées IXP : x/y semblent déjà correspondre à l'image
+                x1 = round(pdf_x * scale_x)
+                y1 = round(pdf_y * scale_y)
+                x2 = round((pdf_x + pdf_w) * scale_x)
+                y2 = round((pdf_y + pdf_h) * scale_y)
 
                 pad_x = 2
                 pad_y = 3
 
-                def clamp_rect(x1, y1, x2, y2):
-                    x1 = max(0, x1 - pad_x)
-                    y1 = max(0, y1 - pad_y)
-                    x2 = min(image_width, x2 + pad_x)
-                    y2 = min(image_height, y2 + pad_y)
+                x1 = max(0, x1 - pad_x)
+                y1 = max(0, y1 - pad_y)
+                x2 = min(image_width, x2 + pad_x)
+                y2 = min(image_height, y2 + pad_y)
 
-                    if x2 <= x1:
-                        x2 = x1 + 1
-                    if y2 <= y1:
-                        y2 = y1 + 1
-
-                    return x1, y1, x2, y2
-
-                x1_a, y1_a, x2_a, y2_a = clamp_rect(x1_a, y1_a, x2_a, y2_a)
-                x1_b, y1_b, x2_b, y2_b = clamp_rect(x1_b, y1_b, x2_b, y2_b)
+                if x2 <= x1:
+                    x2 = x1 + 1
+                if y2 <= y1:
+                    y2 = y1 + 1
 
                 print("===== ZONE DEBUG =====")
                 print("zone_index =", idx)
                 print("pdf_x =", pdf_x, "pdf_y =", pdf_y, "pdf_w =", pdf_w, "pdf_h =", pdf_h)
                 print("page_width =", page_width, "page_height =", page_height)
-                print("image_width =", image_width, "image_height =", image_height)
                 print("scale_x =", scale_x, "scale_y =", scale_y)
-                print("rect A (top-origin) =", x1_a, y1_a, x2_a, y2_a)
-                print("rect B (bottom-origin) =", x1_b, y1_b, x2_b, y2_b)
+                print("rect_pixels =", x1, y1, x2, y2)
 
-                # Pour debug visuel :
-                # - rouge = hypothèse A
-                # - vert = hypothèse B
-                draw.rectangle([x1_a, y1_a, x2_a, y2_a], outline="red", width=2)
-                draw.rectangle([x1_b, y1_b, x2_b, y2_b], outline="lime", width=2)
-
-                # Quand tu auras identifié la bonne hypothèse,
-                # remplace les 2 lignes au-dessus par UNE seule ligne noire.
+                # pour debug visuel
+                draw.rectangle([x1, y1, x2, y2], fill="black")
 
             if img.mode in ("RGBA", "P"):
                 img = img.convert("RGB")
 
+            print("image mode after =", img.mode)
+
             img.save(output_path, format="JPEG")
 
+        print("output exists =", os.path.exists(output_path))
         if os.path.exists(output_path):
-            print("===== OUTPUT DEBUG =====")
-            print("output exists =", True)
-            print("output size bytes =", os.path.getsize(output_path))
-        else:
-            print("output exists =", False)
-            raise HTTPException(status_code=500, detail="Le fichier de sortie n'a pas été créé")
+            print("output size =", os.path.getsize(output_path))
+
+        print("===== REQUEST DEBUG END =====")
 
         return FileResponse(
             output_path,
@@ -158,16 +152,23 @@ async def anonymize_image(request: Request):
             filename=f"anonymized_{uploaded_file.filename or 'image.jpg'}"
         )
 
-    except HTTPException:
-        raise
+    except HTTPException as e:
+        print("===== HTTP EXCEPTION =====")
+        print("status_code =", e.status_code)
+        print("detail =", e.detail)
+        return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
+
     except Exception as e:
-        print("===== ERROR DEBUG =====")
-        print("Exception =", repr(e))
-        raise HTTPException(status_code=500, detail=f"Erreur traitement image: {str(e)}")
+        print("===== UNHANDLED EXCEPTION =====")
+        print(str(e))
+        return JSONResponse(
+            status_code=500,
+            content={"detail": f"Erreur traitement image: {str(e)}"}
+        )
 
     finally:
         if input_path and os.path.exists(input_path):
             try:
                 os.remove(input_path)
-            except Exception as e:
-                print("Impossible de supprimer input_path :", repr(e))
+            except Exception:
+                pass
