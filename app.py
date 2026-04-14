@@ -1,12 +1,19 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageDraw
 import json
 import os
 import tempfile
+import uuid
 from typing import List, Dict, Any
 
 app = FastAPI()
+
+PUBLIC_DIR = "public"
+os.makedirs(PUBLIC_DIR, exist_ok=True)
+
+app.mount("/public", StaticFiles(directory=PUBLIC_DIR), name="public")
 
 
 @app.get("/")
@@ -35,11 +42,11 @@ async def echo():
 
 @app.post("/anonymize")
 async def anonymize_image(
+    request: Request,
     image: UploadFile = File(...),
     zonesJson: str = Form(...)
 ):
     input_path = None
-    output_path = None
 
     try:
         print("===== POST /anonymize START =====", flush=True)
@@ -61,7 +68,8 @@ async def anonymize_image(
             file_bytes = await image.read()
             tmp_in.write(file_bytes)
 
-        output_path = input_path.replace(suffix, f"_anonymized{suffix}")
+        unique_name = f"anonymized_{uuid.uuid4().hex}.jpg"
+        output_path = os.path.join(PUBLIC_DIR, unique_name)
 
         print("input_path =", input_path, flush=True)
         print("output_path =", output_path, flush=True)
@@ -126,13 +134,17 @@ async def anonymize_image(
         if os.path.exists(output_path):
             print("output size =", os.path.getsize(output_path), flush=True)
 
+        file_url = str(request.base_url).rstrip("/") + f"/public/{unique_name}"
+
+        print("file_url =", file_url, flush=True)
         print("===== POST /anonymize END =====", flush=True)
 
-        return FileResponse(
-            path=output_path,
-            media_type="image/jpeg",
-            filename=f"anonymized_{image.filename or 'image.jpg'}"
-        )
+        return {
+            "success": True,
+            "message": "Image anonymisée avec succès",
+            "file_url": file_url,
+            "filename": unique_name
+        }
 
     except HTTPException as e:
         print("===== HTTP EXCEPTION =====", flush=True)
