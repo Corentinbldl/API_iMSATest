@@ -143,7 +143,7 @@ async def anonymize_image(request: Request):
                 print("rect_pixels =", x1, y1, x2, y2, flush=True)
 
                 # Bande blanche
-                draw.rectangle([x1, y1, x2, y2], fill="white")
+                draw.rectangle([x1, y1, x2, y2], fill="black")
 
             img.save(output_path, format="JPEG", quality=95)
 
