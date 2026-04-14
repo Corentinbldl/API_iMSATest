@@ -1,6 +1,7 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.datastructures import UploadFile as StarletteUploadFile
 from PIL import Image, ImageDraw
 import json
 import os
@@ -18,54 +19,69 @@ app.mount("/public", StaticFiles(directory=PUBLIC_DIR), name="public")
 
 @app.get("/")
 def root():
-    print(">>> GET / called", flush=True)
     return {"status": "ok"}
 
 
 @app.get("/health")
 def health():
-    print(">>> GET /health called", flush=True)
     return {"status": "ok"}
 
 
 @app.get("/ping")
 def ping():
-    print(">>> GET /ping called", flush=True)
     return {"message": "pong"}
 
 
 @app.post("/echo")
 async def echo():
-    print(">>> POST /echo called", flush=True)
     return {"ok": True}
 
 
 @app.post("/anonymize")
-async def anonymize_image(
-    request: Request,
-    image: UploadFile = File(...),
-    zonesJson: str = Form(...)
-):
+async def anonymize_image(request: Request):
     input_path = None
 
     try:
         print("===== POST /anonymize START =====", flush=True)
-        print("filename =", image.filename, flush=True)
-        print("content_type =", image.content_type, flush=True)
-        print("zonesJson raw =", zonesJson, flush=True)
+
+        form = await request.form()
+        print("form keys =", list(form.keys()), flush=True)
+
+        zones_json_raw = form.get("zonesJson")
+        uploaded_file = None
+        uploaded_key = None
+
+        for key, value in form.multi_items():
+            print(f"FORM ITEM -> key={key} | type={type(value)}", flush=True)
+            if isinstance(value, StarletteUploadFile):
+                uploaded_file = value
+                uploaded_key = key
+                break
+
+        print("uploaded_key =", uploaded_key, flush=True)
+
+        if not zones_json_raw:
+            raise HTTPException(status_code=400, detail="zonesJson manquant")
 
         try:
-            zones: List[Dict[str, Any]] = json.loads(zonesJson)
+            zones: List[Dict[str, Any]] = json.loads(zones_json_raw)
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"zonesJson invalide: {str(e)}")
 
-        suffix = os.path.splitext(image.filename or "input.jpg")[1]
+        if uploaded_file is None:
+            raise HTTPException(status_code=400, detail="Aucun fichier image reçu")
+
+        print("filename =", uploaded_file.filename, flush=True)
+        print("content_type =", uploaded_file.content_type, flush=True)
+        print("zonesJson raw =", zones_json_raw, flush=True)
+
+        suffix = os.path.splitext(uploaded_file.filename or "input.jpg")[1]
         if not suffix:
             suffix = ".jpg"
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_in:
             input_path = tmp_in.name
-            file_bytes = await image.read()
+            file_bytes = await uploaded_file.read()
             tmp_in.write(file_bytes)
 
         unique_name = f"anonymized_{uuid.uuid4().hex}.jpg"
@@ -77,9 +93,6 @@ async def anonymize_image(
         print("zones_count =", len(zones), flush=True)
 
         with Image.open(input_path) as img:
-            print("image format =", img.format, flush=True)
-            print("image mode before =", img.mode, flush=True)
-
             draw = ImageDraw.Draw(img)
             image_width, image_height = img.size
 
@@ -117,9 +130,6 @@ async def anonymize_image(
 
                 print("===== ZONE DEBUG =====", flush=True)
                 print("zone_index =", idx, flush=True)
-                print("pdf_x =", pdf_x, "pdf_y =", pdf_y, "pdf_w =", pdf_w, "pdf_h =", pdf_h, flush=True)
-                print("page_width =", page_width, "page_height =", page_height, flush=True)
-                print("scale_x =", scale_x, "scale_y =", scale_y, flush=True)
                 print("rect_pixels =", x1, y1, x2, y2, flush=True)
 
                 draw.rectangle([x1, y1, x2, y2], fill="black")
@@ -127,12 +137,7 @@ async def anonymize_image(
             if img.mode in ("RGBA", "P"):
                 img = img.convert("RGB")
 
-            print("image mode after =", img.mode, flush=True)
             img.save(output_path, format="JPEG", quality=95)
-
-        print("output exists =", os.path.exists(output_path), flush=True)
-        if os.path.exists(output_path):
-            print("output size =", os.path.getsize(output_path), flush=True)
 
         file_url = str(request.base_url).rstrip("/") + f"/public/{unique_name}"
 
