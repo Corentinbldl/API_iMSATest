@@ -1,6 +1,5 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse, JSONResponse
-from starlette.datastructures import UploadFile as StarletteUploadFile
 from PIL import Image, ImageDraw
 import json
 import os
@@ -29,81 +28,41 @@ def ping():
 
 
 @app.post("/echo")
-async def echo(request: Request):
+async def echo():
     print(">>> POST /echo called", flush=True)
-    body = await request.body()
-    print(">>> headers =", dict(request.headers), flush=True)
-    print(">>> body size =", len(body), flush=True)
-    return JSONResponse({
-        "ok": True,
-        "body_size": len(body),
-        "content_type": request.headers.get("content-type")
-    })
+    return {"ok": True}
 
 
 @app.post("/anonymize")
-async def anonymize_image(request: Request):
+async def anonymize_image(
+    image: UploadFile = File(...),
+    zonesJson: str = Form(...)
+):
     input_path = None
     output_path = None
 
     try:
         print("===== POST /anonymize START =====", flush=True)
-
-        form = await request.form()
-
-        print("method =", request.method, flush=True)
-        print("url =", str(request.url), flush=True)
-        print("headers =", dict(request.headers), flush=True)
-        print("form keys =", list(form.keys()), flush=True)
-
-        zones_json_raw = None
-        uploaded_file = None
-
-        for key, value in form.multi_items():
-            print(f"FORM ITEM -> key={key} | type={type(value)}", flush=True)
-
-            if key == "zonesJson":
-                zones_json_raw = value
-                print("zonesJson found in multipart field", flush=True)
-
-            if isinstance(value, StarletteUploadFile):
-                uploaded_file = value
-                print("UPLOAD FILE DETECTED", flush=True)
-                print("upload key =", key, flush=True)
-                print("filename =", value.filename, flush=True)
-                print("content_type =", value.content_type, flush=True)
-
-        if not zones_json_raw:
-            zones_json_raw = request.query_params.get("zonesJson")
-            if zones_json_raw:
-                print("zonesJson found in query params", flush=True)
-
-        if not zones_json_raw:
-            raise HTTPException(status_code=400, detail="zonesJson manquant")
+        print("filename =", image.filename, flush=True)
+        print("content_type =", image.content_type, flush=True)
+        print("zonesJson raw =", zonesJson, flush=True)
 
         try:
-            zones: List[Dict[str, Any]] = json.loads(zones_json_raw)
+            zones: List[Dict[str, Any]] = json.loads(zonesJson)
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"zonesJson invalide: {str(e)}")
 
-        if uploaded_file is None:
-            raise HTTPException(
-                status_code=400,
-                detail="Aucun fichier image reçu. Vérifie la section Local files de UiPath."
-            )
-
-        suffix = os.path.splitext(uploaded_file.filename or "input.jpg")[1]
+        suffix = os.path.splitext(image.filename or "input.jpg")[1]
         if not suffix:
             suffix = ".jpg"
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_in:
             input_path = tmp_in.name
-            file_bytes = await uploaded_file.read()
+            file_bytes = await image.read()
             tmp_in.write(file_bytes)
 
         output_path = input_path.replace(suffix, f"_anonymized{suffix}")
 
-        print("===== IMAGE DEBUG =====", flush=True)
         print("input_path =", input_path, flush=True)
         print("output_path =", output_path, flush=True)
         print("input file size =", os.path.getsize(input_path), flush=True)
@@ -161,7 +120,6 @@ async def anonymize_image(request: Request):
                 img = img.convert("RGB")
 
             print("image mode after =", img.mode, flush=True)
-
             img.save(output_path, format="JPEG", quality=95)
 
         print("output exists =", os.path.exists(output_path), flush=True)
@@ -173,7 +131,7 @@ async def anonymize_image(request: Request):
         return FileResponse(
             path=output_path,
             media_type="image/jpeg",
-            filename=f"anonymized_{uploaded_file.filename or 'image.jpg'}"
+            filename=f"anonymized_{image.filename or 'image.jpg'}"
         )
 
     except HTTPException as e:
