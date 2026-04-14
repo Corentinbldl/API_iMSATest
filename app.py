@@ -93,6 +93,9 @@ async def anonymize_image(request: Request):
         print("zones_count =", len(zones), flush=True)
 
         with Image.open(input_path) as img:
+            if img.mode in ("RGBA", "P"):
+                img = img.convert("RGB")
+
             draw = ImageDraw.Draw(img)
             image_width, image_height = img.size
 
@@ -100,10 +103,12 @@ async def anonymize_image(request: Request):
             print("image_height =", image_height, flush=True)
 
             for idx, zone in enumerate(zones, start=1):
-                pdf_x = float(zone["PdfX"])
-                pdf_y = float(zone["PdfY"])
-                pdf_w = float(zone["PdfWidth"])
-                pdf_h = float(zone["PdfHeight"])
+                # Ton JSON est en réalité inversé : il faut lire Y puis X
+                pdf_y = float(zone["PdfX"])
+                pdf_x = float(zone["PdfY"])
+                pdf_h = float(zone["PdfWidth"])
+                pdf_w = float(zone["PdfHeight"])
+
                 page_width = float(zone["PageWidth"])
                 page_height = float(zone["PageHeight"])
 
@@ -130,12 +135,15 @@ async def anonymize_image(request: Request):
 
                 print("===== ZONE DEBUG =====", flush=True)
                 print("zone_index =", idx, flush=True)
+                print("raw zone =", zone, flush=True)
+                print("interpreted pdf_x =", pdf_x, flush=True)
+                print("interpreted pdf_y =", pdf_y, flush=True)
+                print("interpreted pdf_w =", pdf_w, flush=True)
+                print("interpreted pdf_h =", pdf_h, flush=True)
                 print("rect_pixels =", x1, y1, x2, y2, flush=True)
 
-                draw.rectangle([x1, y1, x2, y2], fill="black")
-
-            if img.mode in ("RGBA", "P"):
-                img = img.convert("RGB")
+                # Bande blanche
+                draw.rectangle([x1, y1, x2, y2], fill="white")
 
             img.save(output_path, format="JPEG", quality=95)
 
