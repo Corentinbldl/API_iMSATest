@@ -105,7 +105,7 @@ def sample_text_color(img: Image.Image, x1: int, y1: int, x2: int, y2: int):
     return average_color(darkest_pixels, fallback=(0, 0, 0))
 
 
-def fit_text_font(draw: ImageDraw.ImageDraw, text: str, max_width: int, max_height: int, font_scale: float = 1.35):
+def fit_text_font(draw: ImageDraw.ImageDraw, text: str, max_width: int, max_height: int, font_scale: float = 1.30):
     """
     Trouve une taille de police plus proche du texte original :
     on part d'une taille basée sur la hauteur de la zone,
@@ -236,7 +236,7 @@ async def anonymize_image(request: Request):
                 replacement_text = str(zone.get("ReplacementText", "") or "")
                 pad_x = float(zone.get("PadXPx", 1.0) or 1.0)
                 pad_y = float(zone.get("PadYPx", 1.0) or 1.0)
-                font_scale = float(zone.get("FontScale", 1.35) or 1.35)
+                font_scale = float(zone.get("FontScale", 1.30) or 1.30)
 
                 scale_x = image_width / page_width
                 scale_y = image_height / page_height
