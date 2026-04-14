@@ -142,7 +142,7 @@ async def anonymize_image(request: Request):
                 print("pdf_h =", pdf_h, flush=True)
                 print("rect_pixels =", x1, y1, x2, y2, flush=True)
 
-                draw.rectangle([x1, y1, x2, y2], fill="white")
+                draw.rectangle([x1, y1, x2, y2], fill="black")
 
             img.save(output_path, format="JPEG", quality=95)
 
